@@ -2,96 +2,143 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <string.h>
 
-#define STACK_SIZE 100
-
-// Definindo a estrutura de pilha
+// Definição da estrutura de transição do autômato
 typedef struct {
-    char items[STACK_SIZE][3]; // Alterado para armazenar elementos de 3 caracteres (nó da árvore)
-    int top;
-} Stack;
+    char entrada;  // Símbolo de entrada
+    char pilha_topo;  // Topo da pilha
+    char *pilha_empilha;  // String a ser empilhada (ou NULL se não empilhar)
+    int prox_estado;  // Próximo estado
+} Transicao;
 
-// Função para inicializar a pilha
-void initialize(Stack *stack) {
-    stack->top = -1;
-}
+// Definição da estrutura do autômato de pilha
+typedef struct {
+    int num_estados;  // Número total de estados
+    char *alfabeto;  // Alfabeto de entrada
+    char *pilha_simbolos;  // Alfabeto da pilha
+    Transicao *transicoes;  // Lista de transições
+    int estado_inicial;  // Estado inicial
+    int *estados_finais;  // Estados finais
+    int num_estados_finais;  // Número de estados finais
+} AutomatoPilha;
 
-// Função para verificar se a pilha está vazia
-bool isEmpty(Stack *stack) {
-    return stack->top == -1;
-}
-
-// Função para empilhar um elemento na pilha
-void push(Stack *stack, char item[3]) {
-    if (stack->top == STACK_SIZE - 1) {
-        printf("Erro: Pilha cheia\n");
-        exit(EXIT_FAILURE);
+// Função para inicializar o autômato de pilha
+AutomatoPilha *inicializarAutomato(int num_estados, char *alfabeto, char *pilha_simbolos,
+                                   Transicao *transicoes, int estado_inicial,
+                                   int *estados_finais, int num_estados_finais) {
+    AutomatoPilha *ap = (AutomatoPilha *)malloc(sizeof(AutomatoPilha));
+    if (ap == NULL) {
+        printf("Erro ao alocar memória para o autômato.\n");
+        exit(1);
     }
-    stack->top++;
-    strcpy(stack->items[stack->top], item);
+    ap->num_estados = num_estados;
+    ap->alfabeto = alfabeto;
+    ap->pilha_simbolos = pilha_simbolos;
+    ap->transicoes = transicoes;
+    ap->estado_inicial = estado_inicial;
+    ap->estados_finais = estados_finais;
+    ap->num_estados_finais = num_estados_finais;
+    return ap;
 }
 
-// Função para desempilhar um elemento da pilha
-void pop(Stack *stack) {
-    if (isEmpty(stack)) {
-        printf("Erro: Pilha vazia\n");
-        exit(EXIT_FAILURE);
-    }
-    stack->top--;
-}
-
-// Função principal do parser
-void parse(FILE *fp) {
-    Stack stack;
-    initialize(&stack);
-    push(&stack, "[0,S,0]"); // Empilhando o nó raiz
-
-    char token = fgetc(fp);
-    while (!isEmpty(&stack)) {
-        char *topStack = stack.items[stack.top];
-
-        // Implementação da lógica para cada estado do autômato de pilha
-        if (strcmp(topStack, "[0,S,0]") == 0) {
-            if (token == 'a') {
-                pop(&stack);
-                push(&stack, "[b,S,a]");
-            } else {
-                printf("Erro de parsing: Esperava 'a', mas obteve '%c'\n", token);
-                exit(EXIT_FAILURE);
-            }
-        } else if (strcmp(topStack, "[b,S,a]") == 0) {
-            if (token == 'b') {
-                pop(&stack);
-                push(&stack, "[a,S,b]");
-            } else {
-                printf("Erro de parsing: Esperava 'b', mas obteve '%c'\n", token);
-                exit(EXIT_FAILURE);
-            }
-        } else if (strcmp(topStack, "[a,S,b]") == 0) {
-            if (token == 'c') {
-                pop(&stack);
-                printf("Push(c)\n");
-                token = fgetc(fp); // Avança para o próximo token
-            } else {
-                printf("Erro de parsing: Esperava 'c', mas obteve '%c'\n", token);
-                exit(EXIT_FAILURE);
-            }
-        } else {
-            printf("Erro de parsing: Transição inválida\n");
-            exit(EXIT_FAILURE);
+// Função para verificar se um estado é final
+bool estadoFinal(AutomatoPilha *ap, int estado) {
+    for (int i = 0; i < ap->num_estados_finais; i++) {
+        if (ap->estados_finais[i] == estado) {
+            return true;
         }
     }
+    return false;
+}
+
+// Função para simular o autômato de pilha
+bool simularAutomato(AutomatoPilha *ap, char *entrada) {
+    int estado_atual = ap->estado_inicial;
+    char *pilha = (char *)malloc(sizeof(char));  // Pilha inicialmente vazia
+    int topo_pilha = -1;  // Índice do topo da pilha (-1 indica pilha vazia)
+
+    // Percorrer a entrada
+    for (int i = 0; entrada[i] != '\0'; i++) {
+        char simbolo_entrada = entrada[i];
+        bool transicao_encontrada = false;
+
+        // Verificar transições possíveis a partir do estado atual e símbolo de entrada
+        for (int j = 0; j < ap->num_estados; j++) {
+            Transicao t = ap->transicoes[j];
+            if (t.prox_estado == estado_atual && t.entrada == simbolo_entrada &&
+                (t.pilha_topo == pilha[topo_pilha] || t.pilha_topo == '\0')) {
+                transicao_encontrada = true;
+
+                // Desempilhar símbolos da pilha
+                while (topo_pilha >= 0 && t.pilha_topo != '\0' && pilha[topo_pilha] != t.pilha_topo) {
+                    topo_pilha--;
+                }
+
+                // Empilhar novos símbolos na pilha
+                if (t.pilha_empilha != NULL) {
+                    for (int k = 0; t.pilha_empilha[k] != '\0'; k++) {
+                        topo_pilha++;
+                        pilha = (char *)realloc(pilha, (topo_pilha + 1) * sizeof(char));
+                        pilha[topo_pilha] = t.pilha_empilha[k];
+                    }
+                }
+
+                estado_atual = t.prox_estado;
+                break;  // Transição encontrada, então sair do loop
+            }
+        }
+
+        if (!transicao_encontrada) {
+            // Não há transição possível para o símbolo de entrada atual
+            free(pilha);
+            return false;
+        }
+    }
+
+    // Verificar se o estado atual é um estado final
+    bool resultado = estadoFinal(ap, estado_atual);
+
+    free(pilha);
+    return resultado;
 }
 
 int main() {
-    FILE *fp = fopen("input.txt", "r"); // Substitua "input.txt" pelo nome do arquivo de entrada
-    if (fp == NULL) {
-        printf("Erro ao abrir o arquivo\n");
+    // Abrir o arquivo de entrada
+    FILE *file = fopen("input.txt", "r");
+    if (file == NULL) {
+        printf("Erro ao abrir o arquivo de entrada.\n");
         return 1;
     }
 
-    parse(fp);
+    // Ler a entrada do arquivo
+    char entrada[100]; // Ajuste o tamanho conforme necessário
+    fscanf(file, "%s", entrada);
+    fclose(file);
+
+    // Definição do autômato de pilha
+    Transicao transicoes[] = {
+        {'\0', '\0', "S", 1},  // δ0: ε, ε, S -> push(S)
+        {'\0', 'S', "aSb", 1}, // δ1: ε, S, aSb
+        {'\0', 'S', "c", 1},   // δ2: ε, S, c
+        {'a', 'a', "\0", 1},   // δ3: a, a, ε
+        {'b', 'b', "\0", 1},   // δ4: b, b, ε
+        {'c', 'c', "\0", 1}    // δ5: c, c, ε
+    };
+    int estados_finais[] = {1};
+    AutomatoPilha *ap = inicializarAutomato(2, "abc", "S", transicoes, 0, estados_finais, 1);
+
+    // Teste da função de simulação
+    if (simularAutomato(ap, entrada)) {
+        printf("A entrada \"%s\" é aceita pelo autômato.\n", entrada);
+    } else {
+        printf("A entrada \"%s\" não é aceita pelo autômato.\n", entrada);
+    }
+
+    // Liberação de memória
+    free(ap);
+    return 0;
+}
+
 
     fclose(fp);
     return 0;
